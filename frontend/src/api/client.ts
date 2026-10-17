@@ -4,7 +4,24 @@ import {
   ModelsInfoResponse,
 } from '../types/api';
 
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8005').replace(/\/$/, '');
+function normalizeApiBaseUrl(raw: string | undefined): string {
+  let url = (raw || 'http://localhost:8005').trim();
+  url = url.replace(/\/+$/, '');
+  // Allow pasting a full endpoint like https://host/api/analyze
+  url = url.replace(/\/api(?:\/analyze)?$/i, '');
+  if (!/^https?:\/\//i.test(url)) {
+    const isLocal = url.startsWith('localhost') || url.startsWith('127.0.0.1');
+    url = `${isLocal ? 'http' : 'https'}://${url}`;
+  }
+  try {
+    const parsed = new URL(url);
+    return `${parsed.protocol}//${parsed.host}`;
+  } catch {
+    return url.replace(/\/+$/, '');
+  }
+}
+
+const API_BASE_URL = normalizeApiBaseUrl(import.meta.env.VITE_API_BASE_URL);
 
 export class ApiError extends Error {
   status: number;
