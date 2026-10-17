@@ -3,6 +3,9 @@ from pathlib import Path
 from typing import List
 from pydantic import BaseModel
 
+# Injected at deploy time on Railway: the Vercel frontend URL
+_FRONTEND_URL = os.getenv("FRONTEND_URL", "").rstrip("/")
+
 # Project root calculation: Dr.dental/
 BACKEND_APP_DIR = Path(__file__).resolve().parent
 BACKEND_DIR = BACKEND_APP_DIR.parent
@@ -34,19 +37,24 @@ class Settings(BaseModel):
     MAX_IMAGE_DIMENSION: int = 4096
     MIN_IMAGE_DIMENSION: int = 128
     
-    # CORS
+    # CORS — local dev origins + deployed Vercel frontend
     CORS_ORIGINS: List[str] = [
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:5174",
-        "http://127.0.0.1:5174",
-        "http://localhost:5175",
-        "http://127.0.0.1:5175",
-        "http://localhost:8000",
-        "http://127.0.0.1:8000",
-        "http://localhost:8005",
-        "http://127.0.0.1:8005",
-        "http://localhost:3000",
+        origin for origin in [
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+            "http://localhost:5174",
+            "http://127.0.0.1:5174",
+            "http://localhost:5175",
+            "http://127.0.0.1:5175",
+            "http://localhost:8000",
+            "http://127.0.0.1:8000",
+            "http://localhost:8005",
+            "http://127.0.0.1:8005",
+            "http://localhost:3000",
+            # Injected via FRONTEND_URL env var on Railway
+            _FRONTEND_URL,
+        ]
+        if origin  # filter out empty strings
     ]
 
 settings = Settings()
