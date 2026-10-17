@@ -25,20 +25,23 @@ function normalizeApiBaseUrl(raw: string): string {
   }
 }
 
-const PRODUCTION_API = 'https://drdental-production.up.railway.app';
+function isRailwayHost(value: string): boolean {
+  return /up\.railway\.app/i.test(value);
+}
 
 function resolveApiBaseUrl(): string {
   const raw = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim() || '';
   const pageHost = typeof window !== 'undefined' ? window.location.hostname : '';
   const pageIsLocal = !pageHost || isLocalHost(pageHost);
 
-  // On Vercel (or any deployed host) never call localhost — browsers report that
-  // as "Failed to fetch". Prefer an explicit non-local env, else Railway.
+  // On Vercel, call same-origin `/api`. vercel.json rewrites that to Railway
+  // (server-to-server), which avoids Railway hikari blocking the browser
+  // Origin with "Disallowed CORS origin" / Failed to fetch.
   if (!pageIsLocal) {
-    if (raw && !isLocalHost(raw)) {
+    if (raw && !isLocalHost(raw) && !isRailwayHost(raw)) {
       return normalizeApiBaseUrl(raw);
     }
-    return PRODUCTION_API;
+    return '';
   }
   return normalizeApiBaseUrl(raw || 'http://localhost:8005');
 }
