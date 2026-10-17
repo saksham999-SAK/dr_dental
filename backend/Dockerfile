@@ -1,7 +1,7 @@
 # ── Stage 1: Builder ─────────────────────────────────────────────────────────
 FROM python:3.11-slim AS builder
 
-WORKDIR /app
+WORKDIR /build
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -14,7 +14,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
-COPY requirements.txt .
+# Build context = repo root, so reference backend/requirements.txt
+COPY backend/requirements.txt .
 RUN pip install --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
@@ -37,13 +38,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
 
-# Copy application source
-COPY . /app/backend
-COPY app /app/backend/app
-
-# Copy ML model checkpoints
-COPY enumeration.pt /app/backend/enumeration.pt
-COPY disease.pt /app/backend/disease.pt
+# Build context = repo root → copy entire backend folder in one go
+# This includes: app/, requirements.txt, disease.pt, enumeration.pt, data/, etc.
+COPY backend/ /app/backend/
 
 # Create data directory for analysis storage
 RUN mkdir -p /app/backend/data/analyses
