@@ -8,6 +8,19 @@ def client():
     with TestClient(app) as c:
         yield c
 
+def test_cors_allows_vercel_preview(client):
+    origin = "https://dr-dental-73yvu7hq0-saksham999-saks-projects.vercel.app"
+    response = client.options(
+        "/api/analyze",
+        headers={
+            "Origin": origin,
+            "Access-Control-Request-Method": "POST",
+        },
+    )
+    assert response.status_code in (200, 204)
+    assert response.headers.get("access-control-allow-origin") == origin
+
+
 def test_health_endpoint(client):
     response = client.get("/api/health")
     assert response.status_code == 200

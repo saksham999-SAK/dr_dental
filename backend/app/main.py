@@ -1,8 +1,7 @@
 import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from backend.app.config import settings
 from backend.app.api.health import router as health_router
@@ -15,6 +14,61 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 logger = logging.getLogger("dental_ai")
+
+
+class ReflectCORSMiddleware:
+    """Always echo the browser Origin.
+
+    Starlette's allow_origin_regex is easy to get wrong, and Railway's edge
+    also sends Access-Control-Allow-Credentials: true — so a wildcard `*`
+    origin is rejected by the browser. Mirroring the request origin works
+    for Vercel production, preview URLs, and local Vite.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        header_map = {k.decode("latin-1").lower(): v.decode("latin-1") for k, v in scope.get("headers", [])}
+        origin = header_map.get("origin")
+        request_headers = header_map.get("access-control-request-headers", "*")
+
+        cors_headers = []
+        if origin:
+            cors_headers = [
+                (b"access-control-allow-origin", origin.encode("latin-1")),
+                (b"access-control-allow-credentials", b"true"),
+                (b"access-control-allow-methods", b"GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD"),
+                (b"access-control-allow-headers", request_headers.encode("latin-1")),
+                (b"access-control-max-age", b"86400"),
+                (b"vary", b"Origin"),
+            ]
+
+        if scope.get("method") == "OPTIONS" and origin:
+            await send({
+                "type": "http.response.start",
+                "status": 200,
+                "headers": cors_headers + [(b"content-length", b"0")],
+            })
+            await send({"type": "http.response.body", "body": b""})
+            return
+
+        async def send_with_cors(message: dict) -> None:
+            if message["type"] == "http.response.start" and cors_headers:
+                existing = [
+                    (k, v)
+                    for k, v in message.get("headers", [])
+                    if not k.decode("latin-1").lower().startswith("access-control-")
+                    and k.decode("latin-1").lower() != "vary"
+                ]
+                message = {**message, "headers": existing + cors_headers}
+            await send(message)
+
+        await self.app(scope, receive, send_with_cors)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -33,15 +87,7 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
-# Configure CORS for local development and frontend origins
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS,
-    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:[0-9]+)?$|^https://([a-z0-9-]+\.)*vercel\.app$",
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+app.add_middleware(ReflectCORSMiddleware)
 
 # Mount API Routers
 app.include_router(health_router, prefix=settings.API_V1_PREFIX, tags=["Health"])

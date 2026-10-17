@@ -4,8 +4,12 @@ import {
   ModelsInfoResponse,
 } from '../types/api';
 
-function normalizeApiBaseUrl(raw: string | undefined): string {
-  let url = (raw || 'http://localhost:8005').trim();
+function isLocalHost(value: string): boolean {
+  return /localhost|127\.0\.0\.1/i.test(value);
+}
+
+function normalizeApiBaseUrl(raw: string): string {
+  let url = raw.trim();
   url = url.replace(/\/+$/, '');
   // Allow pasting a full endpoint like https://host/api/analyze
   url = url.replace(/\/api(?:\/analyze)?$/i, '');
@@ -21,7 +25,30 @@ function normalizeApiBaseUrl(raw: string | undefined): string {
   }
 }
 
-const API_BASE_URL = normalizeApiBaseUrl(import.meta.env.VITE_API_BASE_URL);
+const PRODUCTION_API = 'https://drdental-production.up.railway.app';
+
+function resolveApiBaseUrl(): string {
+  const raw = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim() || '';
+  const pageHost = typeof window !== 'undefined' ? window.location.hostname : '';
+  const pageIsLocal = !pageHost || isLocalHost(pageHost);
+
+  // On Vercel (or any deployed host) never call localhost — browsers report that
+  // as "Failed to fetch". Prefer an explicit non-local env, else Railway.
+  if (!pageIsLocal) {
+    if (raw && !isLocalHost(raw)) {
+      return normalizeApiBaseUrl(raw);
+    }
+    return PRODUCTION_API;
+  }
+  return normalizeApiBaseUrl(raw || 'http://localhost:8005');
+}
+
+const API_BASE_URL = resolveApiBaseUrl();
+
+function apiUrl(path: string): string {
+  const suffix = path.startsWith('/') ? path : `/${path}`;
+  return `${API_BASE_URL}${suffix}`;
+}
 
 export class ApiError extends Error {
   status: number;
@@ -29,6 +56,18 @@ export class ApiError extends Error {
     super(message);
     this.name = 'ApiError';
     this.status = status;
+  }
+}
+
+async function fetchApi(input: string, init?: RequestInit): Promise<Response> {
+  try {
+    return await fetch(input, init);
+  } catch (err) {
+    const target = API_BASE_URL || window.location.origin;
+    throw new ApiError(
+      `Cannot reach the analysis engine at ${target}. ${err instanceof Error ? err.message : ''}`.trim(),
+      0,
+    );
   }
 }
 
@@ -54,12 +93,12 @@ export const apiClient = {
   },
 
   async getHealth(): Promise<HealthResponse> {
-    const res = await fetch(`${API_BASE_URL}/api/health`);
+    const res = await fetchApi(apiUrl('/api/health'));
     return handleResponse<HealthResponse>(res);
   },
 
   async getModelsInfo(): Promise<ModelsInfoResponse> {
-    const res = await fetch(`${API_BASE_URL}/api/models/info`);
+    const res = await fetchApi(apiUrl('/api/models/info'));
     return handleResponse<ModelsInfoResponse>(res);
   },
 
@@ -78,7 +117,7 @@ export const apiClient = {
       formData.append('disease_conf', diseaseConf.toString());
     }
 
-    const res = await fetch(`${API_BASE_URL}/api/analyze`, {
+    const res = await fetchApi(apiUrl('/api/analyze'), {
       method: 'POST',
       body: formData,
     });
@@ -86,27 +125,27 @@ export const apiClient = {
   },
 
   async getAnalysis(analysisId: string): Promise<AnalysisResponse> {
-    const res = await fetch(`${API_BASE_URL}/api/analysis/${encodeURIComponent(analysisId)}`);
+    const res = await fetchApi(apiUrl(`/api/analysis/${encodeURIComponent(analysisId)}`));
     return handleResponse<AnalysisResponse>(res);
   },
 
   getOriginalImageUrl(analysisId: string): string {
-    return `${API_BASE_URL}/api/analysis/${encodeURIComponent(analysisId)}/image/original`;
+    return apiUrl(`/api/analysis/${encodeURIComponent(analysisId)}/image/original`);
   },
 
   getAnnotatedImageUrl(analysisId: string): string {
-    return `${API_BASE_URL}/api/analysis/${encodeURIComponent(analysisId)}/image/annotated`;
+    return apiUrl(`/api/analysis/${encodeURIComponent(analysisId)}/image/annotated`);
   },
 
   getTeethOnlyImageUrl(analysisId: string): string {
-    return `${API_BASE_URL}/api/analysis/${encodeURIComponent(analysisId)}/image/teeth_only`;
+    return apiUrl(`/api/analysis/${encodeURIComponent(analysisId)}/image/teeth_only`);
   },
 
   getDiseasesOnlyImageUrl(analysisId: string): string {
-    return `${API_BASE_URL}/api/analysis/${encodeURIComponent(analysisId)}/image/diseases_only`;
+    return apiUrl(`/api/analysis/${encodeURIComponent(analysisId)}/image/diseases_only`);
   },
 
   getReportDownloadUrl(analysisId: string): string {
-    return `${API_BASE_URL}/api/analysis/${encodeURIComponent(analysisId)}/report`;
+    return apiUrl(`/api/analysis/${encodeURIComponent(analysisId)}/report`);
   },
 };
